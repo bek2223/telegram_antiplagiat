@@ -5,20 +5,17 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
-# --- SOZLAMALAR (RENDER VA XAVFSIZLIK UCHUN YANGILANDI) ---
-# os.environ.get birinchi bo'lib serverdagi o'zgaruvchini qidiradi, 
-# agar topmasa ikkinchi yozilgan qiymatni (default) ishlatadi.
-
+# --- SOZLAMALAR ---
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8126985198:AAGgoQpm-6xgdiFBLKDdrUUdHc8JIXlXI94")
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "38c45e021308ac05f6c824fdab463fd816949f79")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 7501446037))
 
 ADMIN_USERNAME = "@bexruzbekadmin"
-CARD_NUMBER = "5614 6868 0441 7981"
+CARD_NUMBER = "5614 6868 0441 7981" # Siz bergan karta raqami
 BOT_USERNAME = "antiplagiat_robot" 
-PORT = int(os.environ.get("PORT", 8080)) # Render beradigan portni avtomatik olish
+PORT = int(os.environ.get("PORT", 8080))
 
-# --- RENDER FREE TIER UCHUN (UYQUGA KETMASLIK) ---
+# --- RENDER HEALTH CHECK ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -26,12 +23,10 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.wfile.write(b"Bot is running")
 
 def run_health_check():
-    # Serverni 0.0.0.0 manzili va Render bergan PORT orqali ishga tushiramiz
     server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
-    print(f"Health check server {PORT}-portda ishlamoqda...")
     server.serve_forever()
 
-# --- BAZA ---
+# --- BAZA FUNKSIYALARI ---
 def init_db():
     conn = sqlite3.connect('antiplagiat_pro.db')
     c = conn.cursor()
@@ -39,8 +34,6 @@ def init_db():
                  (user_id INTEGER PRIMARY KEY, name TEXT, phone TEXT, attempts INTEGER DEFAULT 3, referrer_id INTEGER)''')
     conn.commit()
     conn.close()
-
-init_db()
 
 def get_user_data(user_id):
     conn = sqlite3.connect('antiplagiat_pro.db')
@@ -84,16 +77,7 @@ def main_menu():
     keyboard = [["📊 Qoldiq urinishlar soni"], ["🔗 Do'stimga ulashish", "ℹ️ Bot haqida"]]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-# --- HANDLERS (XATOLIKLAR TUZATILGAN TARTIBDA) ---
-
-async def admin_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID: return
-    try:
-        tid, amt = int(context.args[0]), int(context.args[1])
-        update_attempts(tid, amt)
-        await update.message.reply_text(f"✅ ID {tid} ga {amt} ta qo'shildi.")
-        await context.bot.send_message(tid, "🎉 Hisobingizga yangi urinishlar qo'shildi!")
-    except: await update.message.reply_text("/plus [ID] [SONI]")
+# --- HANDLERS ---
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -114,46 +98,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("Bosh menyu:", reply_markup=main_menu())
 
-async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    phone = update.message.contact.phone_number
-    update_attempts(user_id, 0)
-    
-    conn = sqlite3.connect('antiplagiat_pro.db')
-    c = conn.cursor()
-    c.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
-    c.execute("SELECT referrer_id FROM users WHERE user_id = ?", (user_id,))
-    ref = c.fetchone()
-    if ref and ref[0]:
-        update_attempts(ref[0], 1)
-        try: await context.bot.send_message(ref[0], "🎉 Taklifingiz uchun +1 imkoniyat berildi!")
-        except: pass
-    conn.commit()
-    conn.close()
-    await update.message.reply_text("✅ Ro'yxatdan o'tdingiz!", reply_markup=main_menu())
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = get_user_data(update.effective_user.id)
-    if not user: return
-    text = update.message.text
-
-    if text == "📊 Qoldiq urinishlar soni":
-        await update.message.reply_text(f"Sizda <b>{user[3]} ta</b> imkoniyat bor.", parse_mode="HTML")
-    elif text == "🔗 Do'stimga ulashish":
-        link = f"https://t.me/{BOT_USERNAME}?start={user[0]}"
-        share_msg = f"🛡 Antiplagiat Bot — PDF/Word fayllarni tekshiring!\nRo'yxatdan o'tib 3 ta bepul imkoniyat oling:\n{link}"
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Ulashish", switch_inline_query=share_msg)]])
-        await update.message.reply_text(f"Referal havolangiz:\n<code>{link}</code>", parse_mode="HTML", reply_markup=kb)
-    elif text == "ℹ️ Bot haqida":
-        await update.message.reply_text("🤖 Bu bot fayllarni plagiatga tekshiradi.\nMuallif: @bexruzbekadmin", parse_mode="HTML")
-
 async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user_data(update.effective_user.id)
+    
+    # --- TO'LOV VA URINISH TEKSHIRUVI ---
     if not user or user[3] <= 0:
-        await update.message.reply_text(f"❌ Imkoniyat tugadi. Sotib olish: {ADMIN_USERNAME}")
+        payment_text = (
+            f"❌ <b>Sizda urinishlar tugadi!</b>\n\n"
+            f"Dasturni davom ettirish uchun urinishlar sotib oling:\n"
+            f"💰 Narxi: 1 ta tekshiruv — <b>5 000 so'm</b>\n\n"
+            f"💳 To'lov uchun karta (Humo):\n<code>{CARD_NUMBER}</code>\n\n"
+            f"⚠️ To'lovni amalga oshirgach, chekni {ADMIN_USERNAME} ga yuboring."
+        )
+        await update.message.reply_text(payment_text, parse_mode="HTML")
         return
     
-    m = await update.message.reply_text("⏳ Tahlil qilinmoqda...")
+    m = await update.message.reply_text("⏳ Fayl tahlil qilinmoqda, iltimos kuting...")
     file = await context.bot.get_file(update.message.document.file_id)
     path = f"downloads/{update.message.document.file_name}"
     os.makedirs("downloads", exist_ok=True)
@@ -165,26 +125,70 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         per = 40 if res else 0 
         update_attempts(user[0], -1)
         
-        resp = f"📊 <b>Tahlil yakunlandi:</b>\n\n🔴 O'xshashlik: {per}%\n🟢 Original: {100-per}%\n\n<b>Topilgan manbalar:</b>\n"
-        resp += "🔹 <a href='https://academia.edu'>Academia.edu</a>"
+        resp = (
+            f"📊 <b>Tahlil yakunlandi:</b>\n\n"
+            f"🔴 O'xshashlik: {per}%\n"
+            f"🟢 Original: {100-per}%\n\n"
+            f"<b>Topilgan manbalar:</b>\n"
+            f"🔹 <a href='https://academia.edu'>Academia.edu</a>\n\n"
+            f"📉 Qoldiq urinishlaringiz: <b>{user[3]-1} ta</b>"
+        )
         await m.edit_text(resp, parse_mode="HTML", disable_web_page_preview=True)
-    except Exception as e: await m.edit_text(f"Xato: {e}")
+    except Exception as e: 
+        await m.edit_text(f"❌ Xatolik yuz berdi: {e}")
     finally: 
         if os.path.exists(path): os.remove(path)
 
-# --- BOTNI ISHGA TUSHIRISH ---
+async def admin_plus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_ID: return
+    try:
+        tid, amt = int(context.args[0]), int(context.args[1])
+        update_attempts(tid, amt)
+        await update.message.reply_text(f"✅ ID {tid} ga {amt} ta imkoniyat qo'shildi.")
+        await context.bot.send_message(tid, f"🎉 Hisobingizga {amt} ta yangi urinish qo'shildi! Endi fayl yuborishingiz mumkin.")
+    except: await update.message.reply_text("Format: /plus [ID] [SONI]")
+
+async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    phone = update.message.contact.phone_number
+    conn = sqlite3.connect('antiplagiat_pro.db')
+    c = conn.cursor()
+    c.execute("UPDATE users SET phone = ? WHERE user_id = ?", (phone, user_id))
+    c.execute("SELECT referrer_id FROM users WHERE user_id = ?", (user_id,))
+    ref = c.fetchone()
+    if ref and ref[0]:
+        update_attempts(ref[0], 1)
+        try: await context.bot.send_message(ref[0], "🎉 Taklifingiz uchun +1 bepul imkoniyat berildi!")
+        except: pass
+    conn.commit()
+    conn.close()
+    await update.message.reply_text("✅ Ro'yxatdan muvaffaqiyatli o'tdingiz!", reply_markup=main_menu())
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = get_user_data(update.effective_user.id)
+    if not user: return
+    text = update.message.text
+    if text == "📊 Qoldiq urinishlar soni":
+        await update.message.reply_text(f"Sizda <b>{user[3]} ta</b> imkoniyat bor.", parse_mode="HTML")
+    elif text == "🔗 Do'stimga ulashish":
+        link = f"https://t.me/{BOT_USERNAME}?start={user[0]}"
+        share_msg = f"🛡 Antiplagiat Bot — Fayllarni tekshiring!\n{link}"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("🚀 Ulashish", switch_inline_query=share_msg)]])
+        await update.message.reply_text(f"Referal havolangiz:\n<code>{link}</code>", parse_mode="HTML", reply_markup=kb)
+    elif text == "ℹ️ Bot haqida":
+        await update.message.reply_text("🤖 Bu bot fayllarni plagiatga tekshiradi.\nMuallif: @bexruzbekadmin", parse_mode="HTML")
+
+# --- ISHGA TUSHIRISH ---
 if __name__ == '__main__':
-    # Health check serverini alohida potokda boshlash (Render Free Tier uchun)
+    init_db()
     threading.Thread(target=run_health_check, daemon=True).start()
-    
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Handlerlarni qo'shish
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("plus", admin_plus))
     app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_doc))
     
-    print("Bot muvaffaqiyatli yoqildi...")
+    print("Bot ishlamoqda...")
     app.run_polling()
