@@ -113,6 +113,10 @@ async def handle_doc(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(payment_text, parse_mode="HTML")
         return
     
+    # --- TAHLIL QISMI ---
+    m = await update.message.reply_text("⏳ Fayl tahlil qilinmoqda, iltimos kuting...")
+    # ... qolgan kodlar (faylni yuklash va tahlil qilish)
+    
     m = await update.message.reply_text("⏳ Fayl tahlil qilinmoqda, iltimos kuting...")
     file = await context.bot.get_file(update.message.document.file_id)
     path = f"downloads/{update.message.document.file_name}"
@@ -192,3 +196,4 @@ if __name__ == '__main__':
     
     print("Bot ishlamoqda...")
     app.run_polling()
+
